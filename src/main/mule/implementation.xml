@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce-composite="http://www.mulesoft.org/schema/mule/salesforce-composite" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce-composite http://www.mulesoft.org/schema/mule/salesforce-composite/current/mule-salesforce-composite.xsd">
+	
+	<flow name="salesforce-composite-graph-implementationFlow" doc:id="ffc54664-3df1-4008-a4f2-8bcbeb4acee2" >
+		<http:listener doc:name="POST 8081/ghaph" doc:id="957ac9c9-7dbb-4b84-9699-7ef9e0814f7f" config-ref="HTTP_Listener_config" path="/ghaph"/>
+		<logger level="INFO" doc:name="LOG Intial Request" doc:id="53dacbdd-7d5a-4996-b59a-85ddf3a04ab7" message="#[payload]"/>
+		<ee:transform doc:name="Create Composite Graph Request" doc:id="06badfb0-af03-496d-8920-fbdf65a3c423" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	"graphs": payload.brokers map ((broker, indexOfBroker) -> {
+		"graphId": indexOfBroker + 1,
+		"compositeRequest": [{
+			"url": "/services/data/v54.0/sobjects/Account/BR_ID__c/" ++ broker.brokerId,
+			"body": {
+				"name": broker.name,
+				"ShippingCity": broker.address.city default "",
+				"ShippingState": broker.address.state default "",
+				"ShippingCountry": broker.address.country default "",
+				"Company_email__c": broker.email,
+				"Phone": broker.phone,
+			},
+			"method": "PATCH",
+			"referenceId": "reference_id_broker_" ++ (indexOfBroker + 1) as String
+		}] ++
+    (broker.adviserIds flatMap ((advisor, indexOfAdviser) -> [{
+			"url": "/services/data/v54.0/sobjects/Account/BR_ID__c/" ++ trim(advisor),
+			"body": {
+				"firstname": "Zerodha",
+				"lastname": "Advisor",
+			},
+			"method": "PATCH",
+			"referenceId": "reference_id__broker_" ++ (indexOfBroker + 1) ++ "_advisor_" ++ (indexOfAdviser + 1) as String
+		},
+      {
+			"url": "/services/data/v54.0/sobjects/AccountAccountRelation__c/Account_Relationship_Identifier__c/" ++ broker.brokerId,
+			"body": {
+				"Service_Account__c": "@{reference_id_broker_" ++ (indexOfBroker + 1) ++ ".id}" as String,
+				"Service_RelatedAccount__c": "@{reference_id__broker_" ++ (indexOfBroker + 1) ++ "_advisor_" ++ (indexOfAdviser + 1) ++ ".id}" as String,
+				"Service_Role__c": "",
+				"Service_Active__c": true
+			},
+			"method": "PATCH",
+			"referenceId": "reference_id_relation_broker_" ++ (indexOfBroker + 1) ++ "_adviser_" ++ (indexOfAdviser + 1) as String
+		}]))
+	})
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<salesforce-composite:execute-composite-graph doc:name="Execute composite graph" doc:id="1e9f9c5e-1283-49de-b354-796c1639df34" config-ref="Salesforce_Composite_Config">
+			<salesforce-composite:graphs ><![CDATA[#[payload.graphs]]]></salesforce-composite:graphs>
+		</salesforce-composite:execute-composite-graph>
+		<ee:transform doc:name="Salesforce Response" doc:id="b2685f14-40eb-46f4-8f83-dcf8deb5ebda" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>

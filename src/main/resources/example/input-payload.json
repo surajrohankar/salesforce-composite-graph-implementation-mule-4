@@ -1,0 +1,21 @@
+
+{
+	"brokers": [
+		{
+			"brokerId": "BROKER-01",
+			"name": "Wall Street Brokers",
+			"address": {
+				"street": "25 Wall Street",
+				"city": "New York City",
+				"state": "New York",
+				"country": "US"
+			},
+			"email": "contactus@wallstreetbrokers.com",
+			"phone": "04909874648709",
+			"adviserIds": [
+				"KORACSO01"
+			],
+			"lastModified": "2022-07-26T21:05:45"
+		}
+	]
+}

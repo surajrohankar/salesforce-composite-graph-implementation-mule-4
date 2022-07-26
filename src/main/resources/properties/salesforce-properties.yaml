@@ -1,0 +1,7 @@
+#Salesforce Configuration
+salesforce:
+  consumerKey: ""
+  consumerSecret: ""
+  username: ""
+  password: ""
+  securityToken: ""
