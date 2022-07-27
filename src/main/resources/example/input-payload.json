@@ -2,7 +2,7 @@
 {
 	"brokers": [
 		{
-			"brokerId": "BROKER-01",
+			"brokerId": "BROK-01",
 			"name": "Wall Street Brokers",
 			"address": {
 				"street": "25 Wall Street",
