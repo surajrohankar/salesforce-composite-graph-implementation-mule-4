@@ -4,4 +4,3 @@ salesforce:
   consumerSecret: ""
   username: ""
   password: ""
-  securityToken: ""

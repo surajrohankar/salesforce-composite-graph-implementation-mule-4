@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce-composite="http://www.mulesoft.org/schema/mule/salesforce-composite"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce-composite http://www.mulesoft.org/schema/mule/salesforce-composite/current/mule-salesforce-composite.xsd">
+	<flow name="composite-graph-implementation"
+		doc:id="ea917f21-ee22-47d5-91aa-0b7b6c4a148e">
+		<http:listener doc:name="POST 8082/create-investors"
+			doc:id="4646b91a-f66b-4c32-9080-5425285ecf9c"
+			config-ref="HTTP_Listener_config" path="/create-investors" />
+		<logger level="INFO" doc:name="LOG INFO"
+			doc:id="b75aa92a-717e-40f7-b751-2ee18cb8f032" message="#[payload]" />
+		<ee:transform
+			doc:name="Create Request For Composite Graph"
+			doc:id="64f3519c-af88-4bb8-b1cf-d7f996f6815b">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"graphs": payload map ((item, index) -> {
+		"graphId": (index + 1) as String,
+		"compositeRequest": [{
+			"url": "/services/data/v54.0/sobjects/Account/uId__c/" ++ item.investor.uId,
+			"body": {
+				"FirstName": (item.investor.name splitBy " ")[-1 to 0][2],
+				"MiddleName": (item.investor.name splitBy " ")[-1 to 0][1],
+				"LastName": (item.investor.name splitBy " ")[-1 to 0][0],
+				"PersonEmail": item.investor.primaryEmail,
+				"Phone": item.investor.phoneMobile,
+				"ShippingStreet": item.investor.address.street,
+				"ShippingCity": item.investor.address.city,
+				"ShippingState": item.investor.address.state,
+				"ShippingCountry": item.investor.address.country,
+				"ShippingPostalCode": item.investor.address.postcode
+			},
+			"method": "PATCH",
+			"referenceId": "reference_id_account_" ++ (index + 1)
+		}] ++
+		(flatten(item.investorHoldings flatMap((investorHolding,indexOfInvHolding) -> [{
+			"url": "/services/data/v54.0/sobjects/FinServ__FinancialAccount__c/Financial_Account_Identifier__c/" ++ item.investor.uId ++ "_" ++ investorHolding.financialAccount.issuerId ++ "_" ++ investorHolding.financialAccount.securityId,
+			"body": {
+				"FinServ__PrimaryOwner__c": "@{reference_id_account_" ++ (index + 1) ++ ".id}",
+				"Name": "FA-" ++ item.investor.uId ++ "_" ++ investorHolding.financialAccount.issuerId ++ "_" ++ investorHolding.financialAccount.securityId,
+				"IssuerId__c": investorHolding.financialAccount.issuerId,
+				"SecurityId__c": investorHolding.financialAccount.securityId,
+				/*"Security__r": {
+					"FinServ__SecuritiesName__c": investorHolding.financialAccount.issuerId ++ "_" ++ investorHolding.financialAccount.securityId
+				},
+				"Issuer__r": {
+					"Issuer_Id__c": investorHolding.financialAccount.issuerId
+				},*/
+				"BrokerID__c": investorHolding.financialAccount.brokerID,
+				"InvestorID__c": item.investor.uId,
+				"AdvisorID__c": investorHolding.financialAccount."advisorID"
+			},
+			"method": "PATCH",
+			"referenceId": "reference_id_investor_" ++ (index + 1) ++ "_financialaccount_" ++ (indexOfInvHolding + 1)
+		},(investorHolding.financialAccountHoldings map((finHolding,indexOfFinHolding) -> {
+			"url": "/services/data/v54.0/sobjects/FinServ__FinancialHolding__c/Financial_Holding_Identifier__c/" ++ item.investor.uId ++ "_" ++ investorHolding.financialAccount.issuerId,
+			"body": {
+				"Name": "FH" ++ item.investor.uId ++ "_" ++ investorHolding.financialAccount.issuerId ++ "_" ++ investorHolding.financialAccount.securityId,
+				"FinServ__FinancialAccount__c": "@{reference_id_investor_" ++ (index + 1) ++ "_financialaccount_" ++ (indexOfInvHolding + 1) ++ ".id}",
+				"FinServ__PrimaryOwner__c": "@{reference_id_account_" ++ (index + 1) ++ ".id}",
+				"Units__c": finHolding.units,
+				"FinServ__Price__c": finHolding.price,
+				("Total_Investment__c": finHolding.units as Number * finHolding.price as Number) if(!isBlank(finHolding.units) and !isBlank(finHolding.price))
+			},
+			"method": "PATCH",
+			"referenceId": "reference_id_investor_" ++ (index + 1) ++ "_financialaccount_" ++ (indexOfInvHolding + 1) ++ "_financialholding_" ++ (indexOfFinHolding + 1)
+		}))] )))
+	})
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<salesforce-composite:execute-composite-graph
+			doc:name="Execute composite graph"
+			doc:id="e1263446-34c1-4217-b6f6-44927cb2ec0f"
+			config-ref="Salesforce_Composite_Config">
+			<reconnect />
+			<salesforce-composite:graphs><![CDATA[#[payload.graphs]]]></salesforce-composite:graphs>
+		</salesforce-composite:execute-composite-graph>
+		<choice doc:name="Choice"
+			doc:id="065caab3-56e8-4326-9fc2-2eb2554e5f11">
+			<when expression="#[payload.graphs..isSuccessful contains true]">
+				<ee:transform doc:name="Investors Holdings  Response"
+					doc:id="8c1f9704-6ffe-4444-be35-c14f29697b03">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload.graphs map ((item, index) -> {
+	"graphId": item.graphId,
+	"isSuccessful": item.isSuccessful,
+	"sfdcId": item.graphResponse.compositeResponse.body.id,
+	"message": if ( item.isSuccessful != true ) "Investor has not been updated" else "Investor is updated successfully",
+	"error": if ( item.isSuccessful != true ) item.graphResponse.compositeResponse map ((item1, index1) -> 
+    {
+		"errorCode": item1.body.errorCode[0],
+		"message": item1.body.message[0]
+	}
+    ) else []
+}
+)]]></ee:set-payload>
+
+
+					</ee:message>
+					<ee:variables>
+					</ee:variables>
+				</ee:transform>
+				<logger level="INFO" doc:name="LOG DEBUG"
+					doc:id="36fc44ca-4de9-4474-99e1-f87b5062b1e3"
+					message='#[%dw 2.0
+output application/json
+---
+payload filter ($.isSuccessful == false) map ((item, index) -&gt; {
+	"graphId": item.graphId,
+    "isSuccessful": item.isSuccessful,
+   	"error": if ( item.isSuccessful != true ) item.error map ((item1, index1) -&gt; 
+    {
+		"errorCode": item1.errorCode,
+		"message": item1.message
+	}
+    ) else []
+}
+)]' />
+
+			</when>
+			<otherwise>
+				<logger level="DEBUG" doc:name="LOG DEBUG"
+					doc:id="04d716b8-bddf-41e1-9556-190ff9febe57"
+					message='#[%dw 2.0&#10;output application/json&#10;---&#10;payload.graphs filter ($.isSuccessful == false) map ((item, index) -&gt; {&#10;	"graphId": item.graphId,&#10;	"error": if ( item.isSuccessful != true ) item.graphResponse.compositeResponse map ((item1, index1) -&gt; 
+    {&#10;		"errorCode": item1.body.errorCode[0],&#10;		"message": item1.body.message[0]&#10;	}
+    ) else []&#10;}
+)]'
+					category="com.centuria.sys.api" />
+				<ee:transform doc:name="ERROR Response"
+					doc:id="7395b610-5f8a-4d2b-b74e-f18024e0f918">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+
+					</ee:message>
+					<ee:variables>
+
+					</ee:variables>
+				</ee:transform>
+				<raise-error doc:name="SFDC:ERROR"
+					doc:id="4681d0db-5185-4b98-9627-de89c25bd5f1" type="SFDC:ERROR"
+					description="There was an error while creating investor holdings in salesforce, please refer to downstream response" />
+			</otherwise>
+		</choice>
+		<logger level="INFO" doc:name="Logger"
+			doc:id="f71e1ff5-cc95-4997-8695-412eaf96d2f5" />
+	</flow>
+</mule>
